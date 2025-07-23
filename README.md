@@ -33,24 +33,24 @@ An intelligent VS Code extension that enhances your coding experience by integra
 Add directives using comments in your code to guide the AI:
 
 ```javascript
-// @ai: Make this function more efficient and add error handling
+// @ai: This must use iterators and be designed for processing 1 million + records
 function processData(data) {
   return data.map((item) => item * 2);
 }
 
-// @ai: Add JSDoc comments and type safety
+// @ai: Must not be a float
 function calculateTotal(items) {
   return items.reduce((sum, item) => sum + item.price, 0);
 }
 ```
 
 ```python
-# @ai: Convert this to use async/await pattern
+# @ai: Make sure always return Json
 def fetch_user_data(user_id):
     response = requests.get(f"/api/users/{user_id}")
     return response.json()
 
-# @ai: Add comprehensive error handling and logging
+# @ai: We must maintain this to Stripe API version 2.34
 def process_payment(amount, card_token):
     # payment processing logic
     pass
