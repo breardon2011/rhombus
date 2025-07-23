@@ -1,71 +1,57 @@
-# rhombus README
+# Rhombus 🔷
 
-This is the README for your extension "rhombus". After writing up a brief description, we recommend including the following sections.
+An intelligent VS Code extension that enhances your coding experience by integrating AI directives directly into your code and providing a persistent chat interface powered by Ollama.
 
-## Features
+## ✨ Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+- 🤖 **Static AI Chat Window** - Persistent chat interface like Cursor, always available in your panel
+- 📝 **Smart Directive Detection** - Automatically finds and uses `@ai:` directives near your code as context
+- 🎯 **Context-Aware Responses** - AI considers your project directives when suggesting code changes
+- 📁 **Directive Tree View** - Browse all AI directives in your project from the Explorer sidebar
+- ✅ **Apply/Reject Changes** - Review and selectively apply AI suggestions with one click
+- 🔗 **Ollama Integration** - Works with your local Ollama installation
 
-For example if there is an image subfolder under your extension project workspace:
+## 🚀 Quick Start
 
-\!\[feature X\]\(images/feature-x.png\)
+### Prerequisites
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+1. **Install Ollama**: Download from [ollama.ai](https://ollama.ai)
+2. **Pull a model**: Run `ollama pull mistral` (or your preferred model)
+3. **Start Ollama**: Run `ollama serve` to start the local server
 
-## Requirements
+### Installation
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+1. Clone this repository
+2. Run `npm install` in the extension directory
+3. Press `F5` to launch the extension development host
+4. Or package with `vsce package` and install the `.vsix` file
 
-## Extension Settings
+## 📖 How to Use
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+### 1. Add AI Directives to Your Code
 
-For example:
+Add directives using comments in your code to guide the AI:
 
-This extension contributes the following settings:
+```javascript
+// @ai: Make this function more efficient and add error handling
+function processData(data) {
+  return data.map((item) => item * 2);
+}
 
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+// @ai: Add JSDoc comments and type safety
+function calculateTotal(items) {
+  return items.reduce((sum, item) => sum + item.price, 0);
+}
+```
 
-## Known Issues
+```python
+# @ai: Convert this to use async/await pattern
+def fetch_user_data(user_id):
+    response = requests.get(f"/api/users/{user_id}")
+    return response.json()
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
-
-## Release Notes
-
-Users appreciate release notes as you update your extension.
-
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+# @ai: Add comprehensive error handling and logging
+def process_payment(amount, card_token):
+    # payment processing logic
+    pass
+```
