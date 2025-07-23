@@ -2,6 +2,8 @@
 
 An intelligent VS Code extension that enhances your coding experience by integrating AI directives directly into your code and providing a persistent chat interface powered by Ollama.
 
+Note: This is very early version and doesn't work right, use at your own risk for now - 7/22/25
+
 ## ✨ Features
 
 - 🤖 **Static AI Chat Window** - Persistent chat interface like Cursor, always available in your panel
