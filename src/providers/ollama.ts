@@ -24,13 +24,22 @@ export class OllamaProvider implements LlmProvider {
       ],
     };
 
-    const res = await fetch(`${this.baseUrl}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    try {
+      const res = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
 
-    const data = (await res.json()) as ChatCompletionResponse;
-    return data.choices?.[0]?.message?.content ?? "";
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      }
+
+      const data = (await res.json()) as ChatCompletionResponse;
+      return data.choices?.[0]?.message?.content ?? "";
+    } catch (error) {
+      console.error("Ollama API error:", error);
+      throw new Error(`Failed to communicate with Ollama: ${error}`);
+    }
   }
 }

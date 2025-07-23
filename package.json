@@ -17,17 +17,44 @@
     "views": {
       "explorer": [
         {
-          "id": "aiGuidance.prompts",
-          "name": "AI Prompts"
+          "id": "aiDirectives",
+          "name": "AI Directives",
+          "icon": "$(lightbulb)"
+        }
+      ],
+      "panel": [
+        {
+          "type": "webview",
+          "id": "aiAssistant.chatView",
+          "name": "AI Assistant",
+          "icon": "$(comment-discussion)"
         }
       ]
     },
     "commands": [
       {
-        "command": "aiGuidance.runPrompt",
-        "title": "Run AI Prompt"
+        "command": "aiGuidance.openChat",
+        "title": "Open AI Chat",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "aiAssistant.fixHere",
+        "title": "Fix with AI"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "aiGuidance.openChat"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "aiGuidance.openChat",
+          "group": "1_modification"
+        }
+      ]
+    },
     "configuration": {
       "title": "AI Assistant",
       "properties": {
@@ -36,10 +63,10 @@
           "default": "http://localhost:11434",
           "description": "Base URL of the real LLM server (Ollama, OpenAI gateway …)"
         },
-        "aiAssistant.proxyPort": {
-          "type": "number",
-          "default": 11555,
-          "description": "Port the local AI proxy will listen on"
+        "aiAssistant.model": {
+          "type": "string",
+          "default": "mistral",
+          "description": "Model name to use for completions"
         }
       }
     }

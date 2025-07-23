@@ -1,35 +1,99 @@
+// src/treeView.ts
 import * as vscode from "vscode";
-import { PromptStore } from "./promptStore";
+import { DirectiveIndexer, Directive } from "./directiveIndexer";
 
-export class PromptTreeView {
-  private tree: vscode.TreeView<vscode.TreeItem>;
-  constructor(private store: PromptStore) {
-    this.tree = vscode.window.createTreeView("aiGuidance.prompts", {
-      treeDataProvider: {
-        getChildren: (el?: vscode.TreeItem) => this.getChildren(el),
-        getTreeItem: (e) => e,
-      },
+type Node = FileNode | DirectiveNode;
+
+interface FileNode {
+  type: "file";
+  uri: vscode.Uri;
+}
+
+interface DirectiveNode {
+  type: "directive";
+  uri: vscode.Uri;
+  directive: Directive;
+}
+
+export class DirectiveTreeView
+  implements vscode.TreeDataProvider<Node>, vscode.Disposable
+{
+  private _onDidChangeTreeData = new vscode.EventEmitter<Node | undefined>();
+  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+
+  private view: vscode.TreeView<Node>;
+  private disposables: vscode.Disposable[] = [];
+
+  constructor(private indexer: DirectiveIndexer, ctx: vscode.ExtensionContext) {
+    // register the provider
+    this.view = vscode.window.createTreeView("aiDirectives", {
+      treeDataProvider: this,
     });
+    ctx.subscriptions.push(this.view, this);
+
+    // refresh when directives change
+    this.disposables.push(this.indexer.onDidUpdate(() => this.refresh()));
   }
-  private getChildren(el?: vscode.TreeItem) {
-    if (!el) {
-      // root = list of files
-      return [...this.store["map"].keys()].map(
-        (k) => new vscode.TreeItem(k, vscode.TreeItemCollapsibleState.Collapsed)
+
+  refresh(): void {
+    this._onDidChangeTreeData.fire(undefined);
+  }
+
+  getTreeItem(element: Node): vscode.TreeItem {
+    if (element.type === "file") {
+      const item = new vscode.TreeItem(
+        element.uri.fsPath,
+        vscode.TreeItemCollapsibleState.Collapsed
+      );
+      item.resourceUri = element.uri;
+      return item;
+    }
+
+    // directive node
+    const item = new vscode.TreeItem(
+      `💡 ${element.directive.text}`,
+      vscode.TreeItemCollapsibleState.None
+    );
+    item.command = {
+      command: "aiAssistant.fixHere", // or whatever command you want to run
+      title: "Run with AI",
+      arguments: [element.uri], // pass uri, you can extend with directive info
+    };
+    item.description = `${element.directive.range.start.line + 1}`;
+    item.tooltip = `Line ${element.directive.range.start.line + 1}`;
+    return item;
+  }
+
+  async getChildren(element?: Node): Promise<Node[]> {
+    // root = all files that have directives
+    if (!element) {
+      const files = [...(this as any).indexer["map"].keys()] as string[]; // small hack to access map
+      return files.map(
+        (f) => ({ type: "file", uri: vscode.Uri.file(f) } as FileNode)
       );
     }
-    if (el.collapsibleState !== vscode.TreeItemCollapsibleState.None) {
-      const uri = vscode.Uri.parse(el.label as string);
-      return this.store.listByFile(uri).map((p) => {
-        const item = new vscode.TreeItem(p.prompt);
-        item.command = {
-          command: "aiGuidance.runPrompt",
-          title: "",
-          arguments: [uri, p.id],
-        };
-        return item;
-      });
+
+    // file node → list directives
+    if (element.type === "file") {
+      const ds = (this as any).indexer["map"].get(element.uri.fsPath) as
+        | Directive[]
+        | undefined;
+      if (!ds) return [];
+      return ds.map(
+        (d) =>
+          ({
+            type: "directive",
+            uri: element.uri,
+            directive: d,
+          } as DirectiveNode)
+      );
     }
+
+    // directive node → no children
     return [];
+  }
+
+  dispose() {
+    this.disposables.forEach((d) => d.dispose());
   }
 }

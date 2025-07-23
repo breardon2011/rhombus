@@ -5,6 +5,7 @@ export interface Directive {
   file: string; // absolute path
   range: vscode.Range; // span the directive applies to
   text: string; // directive text
+  id?: string; // optional id for specific directives
 }
 
 export class DirectiveIndexer {
@@ -13,18 +14,35 @@ export class DirectiveIndexer {
   public readonly onDidUpdate = this._onDidUpdate.event;
 
   constructor(ctx: vscode.ExtensionContext) {
-    const rescan = (d: vscode.TextDocument) => {
-      void this.scan(d);
-    };
+    // The constructor already sets up event listeners automatically
+    // No need to call index manually from extension.ts
+  }
 
-    ctx.subscriptions.push(
-      vscode.workspace.onDidOpenTextDocument(rescan),
-      vscode.workspace.onDidChangeTextDocument((e) => rescan(e.document)),
-      vscode.workspace.onDidSaveTextDocument(rescan)
-    );
+  /** Index/scan a document for directives */
+  async index(doc: vscode.TextDocument): Promise<void> {
+    await this.scan(doc);
+  }
 
-    // initial scan for already-open docs
-    vscode.workspace.textDocuments.forEach(rescan);
+  /** Get a specific directive by file and id */
+  get(uri: vscode.Uri, id: string): { prompt: string; range: vscode.Range } {
+    const directives = this.map.get(uri.fsPath) ?? [];
+    const directive = directives.find((d) => d.id === id);
+    if (!directive) {
+      throw new Error(`Directive with id ${id} not found in ${uri.fsPath}`);
+    }
+    return { prompt: directive.text, range: directive.range };
+  }
+
+  /** Get all directives for a file */
+  async getAllDirectives(
+    uri: vscode.Uri
+  ): Promise<{ prompt: string; range: vscode.Range; id?: string }[]> {
+    const directives = this.map.get(uri.fsPath) ?? [];
+    return directives.map((d) => ({
+      prompt: d.text,
+      range: d.range,
+      id: d.id,
+    }));
   }
 
   /** All directives whose ranges intersect `range`. */
@@ -46,9 +64,28 @@ export class DirectiveIndexer {
 
     const LINE_TAG = /(?:\/\/|#|--)\s*@ai:\s*(.+)$/;
     const GLOBAL_TAG = /(?:\/\/|#|--)\s*@ai-global:\s*$/;
+    const PROMPT_TAG =
+      /(?:\/\/|#|--)\s*@ai\s+prompt="([^"]+)"(?:\s+id="([a-f0-9-]+)")?/;
 
     for (let i = 0; i < doc.lineCount; i++) {
       const text = doc.lineAt(i).text;
+
+      // Prompt-style directive with id (for CodeLens)
+      const promptMatch = PROMPT_TAG.exec(text);
+      if (promptMatch) {
+        const [, prompt, rawId] = promptMatch;
+        const id = rawId ?? crypto.randomUUID();
+        const symRange =
+          (await this.nextTopSymbolRange(doc, i)) ??
+          new vscode.Range(i + 1, 0, doc.lineCount, 0);
+        directives.push({
+          file: doc.fileName,
+          range: symRange,
+          text: prompt,
+          id: id,
+        });
+        continue;
+      }
 
       // Single-line directive just before a symbol
       const m = LINE_TAG.exec(text);
