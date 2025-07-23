@@ -9,7 +9,9 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "views": {
@@ -25,7 +27,22 @@
         "command": "aiGuidance.runPrompt",
         "title": "Run AI Prompt"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "AI Assistant",
+      "properties": {
+        "aiAssistant.llmUrl": {
+          "type": "string",
+          "default": "http://localhost:11434",
+          "description": "Base URL of the real LLM server (Ollama, OpenAI gateway …)"
+        },
+        "aiAssistant.proxyPort": {
+          "type": "number",
+          "default": 11555,
+          "description": "Port the local AI proxy will listen on"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
