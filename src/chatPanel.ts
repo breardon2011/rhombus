@@ -72,11 +72,11 @@ Current Code:
 ${code}
 \`\`\`${directiveContext}
 
-Please provide the updated code that addresses the user's request while following any directives.`;
+Please provide the updated code that addresses the user's request while following any directives. Return only the code without explanations.`;
 
       const reply = await this.provider.complete({
         prompt:
-          "You are a helpful coding assistant. Respond with the complete updated code that addresses the user's request.",
+          "You are a helpful coding assistant. Respond with ONLY the complete updated code that addresses the user's request. Do not include explanations, comments about changes, or markdown formatting - just return the raw code.",
         context: fullContext,
         model:
           vscode.workspace
@@ -85,18 +85,115 @@ Please provide the updated code that addresses the user's request while followin
         temperature: 0.2,
       });
 
+      // Extract code from the response and separate from explanations
+      const { extractedCode, explanation } =
+        this.extractCodeFromResponse(reply);
+
+      // Show the full response in chat
       this.addMessage(reply, "assistant");
 
-      // Show apply/reject buttons
-      this._view?.webview.postMessage({
-        type: "showActions",
-        code: reply,
-        range: { start: range.start.line, end: range.end.line },
-        filePath: filePath,
-      });
+      if (extractedCode) {
+        // Show apply/reject buttons with just the code
+        this._view?.webview.postMessage({
+          type: "showActions",
+          code: extractedCode,
+          range: { start: range.start.line, end: range.end.line },
+          filePath: filePath,
+        });
+      } else {
+        this.addMessage(
+          "⚠️ No code found in response. The AI might have provided only explanations.",
+          "system"
+        );
+      }
     } catch (error) {
       this.addMessage(`Error: ${error}`, "system");
     }
+  }
+
+  private extractCodeFromResponse(response: string): {
+    extractedCode: string | null;
+    explanation: string;
+  } {
+    // Try to extract code blocks first (```...```)
+    const codeBlockRegex = /```(?:\w+)?\s*\n([\s\S]*?)\n```/g;
+    const codeBlocks = [];
+    let match;
+
+    while ((match = codeBlockRegex.exec(response)) !== null) {
+      codeBlocks.push(match[1].trim());
+    }
+
+    if (codeBlocks.length > 0) {
+      // If we found code blocks, use the largest one (likely the main code)
+      const extractedCode = codeBlocks.reduce((longest, current) =>
+        current.length > longest.length ? current : longest
+      );
+      return { extractedCode, explanation: response };
+    }
+
+    // If no code blocks, try to detect if the entire response looks like code
+    const lines = response.trim().split("\n");
+    const codeIndicators = [
+      /^\s*(?:function|const|let|var|class|interface|type|import|export)/,
+      /^\s*(?:def|class|import|from|if|for|while|try|except)/,
+      /^\s*(?:public|private|protected|static|async|await)/,
+      /^\s*[{}()[\];,]/,
+      /^\s*\/\/|^\s*\/\*|^\s*#/, // comments
+    ];
+
+    const codeLineCount = lines.filter(
+      (line) =>
+        codeIndicators.some((regex) => regex.test(line)) ||
+        line.trim() === "" || // empty lines
+        /^\s+/.test(line) // indented lines
+    ).length;
+
+    // If more than 70% of lines look like code, treat the whole response as code
+    if (codeLineCount / lines.length > 0.7) {
+      return { extractedCode: response.trim(), explanation: "" };
+    }
+
+    // Otherwise, try to find the largest indented block (likely code)
+    const indentedBlocks = [];
+    let currentBlock = [];
+    let inIndentedBlock = false;
+
+    for (const line of lines) {
+      if (/^\s{2,}/.test(line) || line.trim() === "") {
+        // Line is indented or empty
+        if (!inIndentedBlock) {
+          inIndentedBlock = true;
+          currentBlock = [];
+        }
+        currentBlock.push(line);
+      } else {
+        // Line is not indented
+        if (inIndentedBlock && currentBlock.length > 2) {
+          indentedBlocks.push(currentBlock.join("\n").trim());
+        }
+        inIndentedBlock = false;
+        currentBlock = [];
+      }
+    }
+
+    if (inIndentedBlock && currentBlock.length > 2) {
+      indentedBlocks.push(currentBlock.join("\n").trim());
+    }
+
+    if (indentedBlocks.length > 0) {
+      const extractedCode = indentedBlocks.reduce((longest, current) =>
+        current.length > longest.length ? current : longest
+      );
+      return { extractedCode, explanation: response };
+    }
+
+    // Last resort: if response looks short and code-like, use it all
+    if (response.length < 1000 && /[{}()[\];]/.test(response)) {
+      return { extractedCode: response.trim(), explanation: "" };
+    }
+
+    return { extractedCode: null, explanation: response };
   }
 
   private async collectContext(): Promise<{
@@ -223,6 +320,7 @@ Please provide the updated code that addresses the user's request while followin
         .message-content {
             white-space: pre-wrap;
             word-wrap: break-word;
+            font-family: var(--vscode-editor-font-family);
         }
         
         .input-area {
@@ -256,10 +354,20 @@ Please provide the updated code that addresses the user's request while followin
             display: none;
             gap: 8px;
             margin-top: 8px;
+            padding: 8px;
+            background-color: var(--vscode-editor-inactiveSelectionBackground);
+            border-radius: 4px;
+            border: 1px solid var(--vscode-panel-border);
         }
         
         .action-buttons.show {
             display: flex;
+        }
+        
+        .action-buttons-header {
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: var(--vscode-descriptionForeground);
         }
         
         .apply-btn {
@@ -275,7 +383,8 @@ Please provide the updated code that addresses the user's request while followin
     <div id="messages"></div>
     
     <div class="action-buttons" id="actionButtons">
-        <button class="apply-btn" id="applyBtn">✅ Apply Changes</button>
+        <div class="action-buttons-header">📝 Apply code changes to your file?</div>
+        <button class="apply-btn" id="applyBtn">✅ Apply Code Only</button>
         <button class="reject-btn" id="rejectBtn">❌ Reject</button>
     </div>
     
@@ -370,7 +479,7 @@ Please provide the updated code that addresses the user's request while followin
         });
 
         // Initial welcome message
-        addMessage('Hi! I\\'m your AI coding assistant. Select some code and ask me to modify it!', 'system');
+        addMessage('Hi! I\\'m your AI coding assistant. Select some code and ask me to modify it!\\n\\nI\\'ll show you the full response here, but only apply the extracted code to your file.', 'system');
     </script>
 </body>
 </html>`;
