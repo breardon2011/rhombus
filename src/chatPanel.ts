@@ -2,16 +2,23 @@
 import * as vscode from "vscode";
 import { DirectiveIndexer } from "./directiveIndexer";
 import { LlmProvider } from "./providers/base";
+import { ModelManager, Model, Provider } from "./modelManager";
+import { ProviderFactory } from "./providerFactory";
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "aiAssistant.chatView";
   private _view?: vscode.WebviewView;
+  private currentProvider: LlmProvider;
+  private modelManager: ModelManager;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
     private readonly indexer: DirectiveIndexer,
-    private readonly provider: LlmProvider
-  ) {}
+    initialProvider: LlmProvider
+  ) {
+    this.currentProvider = initialProvider;
+    this.modelManager = ModelManager.getInstance();
+  }
 
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -27,10 +34,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
 
+    // Load initial data
+    this.loadModelsAndProviders();
+
     webviewView.webview.onDidReceiveMessage(async (data) => {
       switch (data.type) {
         case "userPrompt":
-          await this.handleUserPrompt(data.text);
+          await this.handleUserPrompt(data.text, data.model, data.provider);
           break;
         case "applyEdit":
           await this.applyEdit(data.code, data.range);
@@ -38,12 +48,77 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         case "rejectEdit":
           this.addMessage("Edit rejected.", "system");
           break;
+        case "refreshModels":
+          await this.refreshModels();
+          break;
+        case "providerChanged":
+          await this.handleProviderChange(data.provider);
+          break;
       }
     });
   }
 
-  private async handleUserPrompt(userText: string) {
+  private async loadModelsAndProviders() {
+    const providers = this.modelManager.getAvailableProviders();
+    const models = await this.modelManager.getAvailableModels();
+
+    this._view?.webview.postMessage({
+      type: "loadSelectors",
+      providers: providers,
+      models: models,
+      currentProvider: "ollama",
+      currentModel: models[0]?.name || "mistral",
+    });
+  }
+
+  private async refreshModels() {
+    this.modelManager.clearCache();
+    const models = await this.modelManager.getAvailableModels();
+
+    this._view?.webview.postMessage({
+      type: "updateModels",
+      models: models,
+    });
+
+    this.addMessage("📡 Models refreshed!", "system");
+  }
+
+  private async handleProviderChange(providerName: string) {
     try {
+      this.currentProvider = ProviderFactory.createProvider(providerName);
+      this.addMessage(`🔄 Switched to ${providerName}`, "system");
+
+      // Refresh models for the new provider
+      if (providerName === "ollama") {
+        await this.refreshModels();
+      } else if (providerName === "openai") {
+        // OpenAI models are predefined
+        const openaiModels = [
+          { name: "gpt-4" },
+          { name: "gpt-4-turbo-preview" },
+          { name: "gpt-3.5-turbo" },
+        ];
+        this._view?.webview.postMessage({
+          type: "updateModels",
+          models: openaiModels,
+        });
+      }
+    } catch (error) {
+      this.addMessage(`❌ Failed to switch provider: ${error}`, "system");
+    }
+  }
+
+  private async handleUserPrompt(
+    userText: string,
+    selectedModel: string,
+    selectedProvider: string
+  ) {
+    try {
+      // Switch provider if needed
+      if (selectedProvider !== this.getCurrentProviderName()) {
+        await this.handleProviderChange(selectedProvider);
+      }
+
       this.addMessage(userText, "user");
       this.addMessage("Thinking...", "system");
 
@@ -57,7 +132,6 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         return;
       }
 
-      // Create context with directives
       const directiveContext =
         directives.length > 0
           ? `\n\nProject Directives:\n${directives
@@ -74,26 +148,19 @@ ${code}
 
 Please provide the updated code that addresses the user's request while following any directives. Return only the code without explanations.`;
 
-      const reply = await this.provider.complete({
+      const reply = await this.currentProvider.complete({
         prompt:
           "You are a helpful coding assistant. Respond with ONLY the complete updated code that addresses the user's request. Do not include explanations, comments about changes, or markdown formatting - just return the raw code.",
         context: fullContext,
-        model:
-          vscode.workspace
-            .getConfiguration("aiAssistant")
-            .get<string>("model") || "mistral",
+        model: selectedModel,
         temperature: 0.2,
       });
 
-      // Extract code from the response and separate from explanations
-      const { extractedCode, explanation } =
-        this.extractCodeFromResponse(reply);
+      const { extractedCode } = this.extractCodeFromResponse(reply);
 
-      // Show the full response in chat
       this.addMessage(reply, "assistant");
 
       if (extractedCode) {
-        // Show apply/reject buttons with just the code
         this._view?.webview.postMessage({
           type: "showActions",
           code: extractedCode,
@@ -111,6 +178,13 @@ Please provide the updated code that addresses the user's request while followin
     }
   }
 
+  private getCurrentProviderName(): string {
+    // Simple way to track current provider - you might want to make this more robust
+    return this.currentProvider.constructor.name
+      .toLowerCase()
+      .replace("provider", "");
+  }
+
   private extractCodeFromResponse(response: string): {
     extractedCode: string | null;
     explanation: string;
@@ -125,7 +199,6 @@ Please provide the updated code that addresses the user's request while followin
     }
 
     if (codeBlocks.length > 0) {
-      // If we found code blocks, use the largest one (likely the main code)
       const extractedCode = codeBlocks.reduce((longest, current) =>
         current.length > longest.length ? current : longest
       );
@@ -139,17 +212,16 @@ Please provide the updated code that addresses the user's request while followin
       /^\s*(?:def|class|import|from|if|for|while|try|except)/,
       /^\s*(?:public|private|protected|static|async|await)/,
       /^\s*[{}()[\];,]/,
-      /^\s*\/\/|^\s*\/\*|^\s*#/, // comments
+      /^\s*\/\/|^\s*\/\*|^\s*#/,
     ];
 
     const codeLineCount = lines.filter(
       (line) =>
         codeIndicators.some((regex) => regex.test(line)) ||
-        line.trim() === "" || // empty lines
-        /^\s+/.test(line) // indented lines
+        line.trim() === "" ||
+        /^\s+/.test(line)
     ).length;
 
-    // If more than 70% of lines look like code, treat the whole response as code
     if (codeLineCount / lines.length > 0.7) {
       return { extractedCode: response.trim(), explanation: "" };
     }
@@ -215,22 +287,14 @@ Please provide the updated code that addresses the user's request while followin
     const doc = editor.document;
     const selection = editor.selection;
 
-    // Use selection if exists, otherwise entire file
     const range = selection.isEmpty
       ? new vscode.Range(0, 0, doc.lineCount, 0)
       : selection;
 
     const code = doc.getText(range);
-
-    // Get directives near the selected/current code
     const directives = this.indexer.getAllForRange(doc.fileName, range);
 
-    return {
-      code,
-      range,
-      directives,
-      filePath: doc.fileName,
-    };
+    return { code, range, directives, filePath: doc.fileName };
   }
 
   private async applyEdit(code: string, range: { start: number; end: number }) {
@@ -277,16 +341,54 @@ Please provide the updated code that addresses the user's request while followin
             color: var(--vscode-foreground);
             background-color: var(--vscode-editor-background);
             margin: 0;
-            padding: 16px;
+            padding: 12px;
             height: 100vh;
             display: flex;
             flex-direction: column;
+            gap: 8px;
+        }
+        
+        .selectors {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding: 8px;
+            border: 1px solid var(--vscode-panel-border);
+            border-radius: 4px;
+            background-color: var(--vscode-input-background);
+        }
+        
+        .selector-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .selector-row label {
+            min-width: 60px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        select {
+            flex: 1;
+            padding: 4px 8px;
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 3px;
+            background-color: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+            font-size: 12px;
+        }
+        
+        .refresh-btn {
+            padding: 4px 8px;
+            font-size: 12px;
+            min-width: auto;
         }
         
         #messages {
             flex: 1;
             overflow-y: auto;
-            margin-bottom: 16px;
             padding: 8px;
             border: 1px solid var(--vscode-panel-border);
             border-radius: 4px;
@@ -315,12 +417,14 @@ Please provide the updated code that addresses the user's request while followin
         .message-sender {
             font-weight: bold;
             margin-bottom: 4px;
+            font-size: 12px;
         }
         
         .message-content {
             white-space: pre-wrap;
             word-wrap: break-word;
             font-family: var(--vscode-editor-font-family);
+            font-size: 13px;
         }
         
         .input-area {
@@ -344,6 +448,7 @@ Please provide the updated code that addresses the user's request while followin
             background-color: var(--vscode-button-background);
             color: var(--vscode-button-foreground);
             cursor: pointer;
+            font-size: 12px;
         }
         
         button:hover {
@@ -368,6 +473,7 @@ Please provide the updated code that addresses the user's request while followin
             font-weight: bold;
             margin-bottom: 8px;
             color: var(--vscode-descriptionForeground);
+            font-size: 12px;
         }
         
         .apply-btn {
@@ -380,6 +486,23 @@ Please provide the updated code that addresses the user's request while followin
     </style>
 </head>
 <body>
+    <div class="selectors">
+        <div class="selector-row">
+            <label>Provider:</label>
+            <select id="providerSelect">
+                <option value="ollama">🦙 Ollama (Local)</option>
+                <option value="openai">🤖 OpenAI</option>
+            </select>
+        </div>
+        <div class="selector-row">
+            <label>Model:</label>
+            <select id="modelSelect">
+                <option value="mistral">Loading...</option>
+            </select>
+            <button class="refresh-btn" id="refreshBtn">🔄</button>
+        </div>
+    </div>
+
     <div id="messages"></div>
     
     <div class="action-buttons" id="actionButtons">
@@ -401,6 +524,9 @@ Please provide the updated code that addresses the user's request while followin
         const actionButtons = document.getElementById('actionButtons');
         const applyBtn = document.getElementById('applyBtn');
         const rejectBtn = document.getElementById('rejectBtn');
+        const providerSelect = document.getElementById('providerSelect');
+        const modelSelect = document.getElementById('modelSelect');
+        const refreshBtn = document.getElementById('refreshBtn');
         
         let pendingEdit = null;
 
@@ -428,7 +554,9 @@ Please provide the updated code that addresses the user's request while followin
             if (text) {
                 vscode.postMessage({
                     type: 'userPrompt',
-                    text: text
+                    text: text,
+                    model: modelSelect.value,
+                    provider: providerSelect.value
                 });
                 messageInput.value = '';
                 actionButtons.classList.remove('show');
@@ -440,6 +568,17 @@ Please provide the updated code that addresses the user's request while followin
             if (e.key === 'Enter') {
                 sendMessage();
             }
+        });
+
+        refreshBtn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'refreshModels' });
+        });
+
+        providerSelect.addEventListener('change', () => {
+            vscode.postMessage({ 
+                type: 'providerChanged', 
+                provider: providerSelect.value 
+            });
         });
 
         applyBtn.addEventListener('click', () => {
@@ -475,11 +614,43 @@ Please provide the updated code that addresses the user's request while followin
                     };
                     actionButtons.classList.add('show');
                     break;
+                case 'loadSelectors':
+                    // Load providers
+                    providerSelect.innerHTML = '';
+                    message.providers.forEach(provider => {
+                        const option = document.createElement('option');
+                        option.value = provider.name;
+                        option.textContent = \`\${provider.icon} \${provider.displayName}\`;
+                        providerSelect.appendChild(option);
+                    });
+                    providerSelect.value = message.currentProvider;
+                    
+                    // Load models
+                    modelSelect.innerHTML = '';
+                    message.models.forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model.name;
+                        option.textContent = model.size ? 
+                            \`\${model.name} (\${model.size})\` : model.name;
+                        modelSelect.appendChild(option);
+                    });
+                    modelSelect.value = message.currentModel;
+                    break;
+                case 'updateModels':
+                    modelSelect.innerHTML = '';
+                    message.models.forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model.name;
+                        option.textContent = model.size ? 
+                            \`\${model.name} (\${model.size})\` : model.name;
+                        modelSelect.appendChild(option);
+                    });
+                    break;
             }
         });
 
         // Initial welcome message
-        addMessage('Hi! I\\'m your AI coding assistant. Select some code and ask me to modify it!\\n\\nI\\'ll show you the full response here, but only apply the extracted code to your file.', 'system');
+        addMessage('Hi! I\\'m your AI coding assistant.\\n\\nSelect a provider and model above, then ask me to modify your code!', 'system');
     </script>
 </body>
 </html>`;

@@ -5,12 +5,11 @@ import { OllamaProvider } from "./providers/ollama";
 import { ChatViewProvider } from "./chatPanel";
 
 export async function activate(ctx: vscode.ExtensionContext) {
-  const model = "mistral"; // Change to your local model name
   const provider = new OllamaProvider("http://localhost:11434");
   const directiveIndexer = new DirectiveIndexer(ctx);
   const treeView = new DirectiveTreeView(directiveIndexer, ctx);
 
-  // Register the static chat view
+  // Register the static chat view with model/provider selection
   const chatProvider = new ChatViewProvider(
     ctx.extensionUri,
     directiveIndexer,
@@ -22,9 +21,6 @@ export async function activate(ctx: vscode.ExtensionContext) {
       chatProvider
     )
   );
-
-  // Index directives on open/save (automatically handled by DirectiveIndexer constructor)
-  // No need for manual indexing since it's done automatically
 
   // Command for directive tree view
   ctx.subscriptions.push(
@@ -48,7 +44,6 @@ export async function activate(ctx: vscode.ExtensionContext) {
             return;
           }
 
-          // Use the first directive or show a picker for multiple
           const directive =
             directives.length === 1
               ? directives[0]
@@ -66,7 +61,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
           const reply = await provider.complete({
             prompt: targetDirective.prompt,
             context: code,
-            model,
+            model: "mistral",
             temperature: 0.2,
           });
 

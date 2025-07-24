@@ -58,15 +58,20 @@
     "configuration": {
       "title": "AI Assistant",
       "properties": {
-        "aiAssistant.llmUrl": {
+        "aiAssistant.ollamaUrl": {
           "type": "string",
           "default": "http://localhost:11434",
-          "description": "Base URL of the real LLM server (Ollama, OpenAI gateway …)"
+          "description": "Ollama server URL"
         },
-        "aiAssistant.model": {
+        "aiAssistant.openaiApiKey": {
           "type": "string",
-          "default": "mistral",
-          "description": "Model name to use for completions"
+          "default": "",
+          "description": "OpenAI API key (required for OpenAI provider)"
+        },
+        "aiAssistant.openaiBaseUrl": {
+          "type": "string",
+          "default": "https://api.openai.com",
+          "description": "OpenAI base URL (for custom endpoints)"
         }
       }
     }
