@@ -4,6 +4,8 @@ An intelligent VS Code extension that enhances your coding experience by integra
 
 Note: This is very early version and doesn't work right, use at your own risk for now - 7/22/25
 
+Updates this week: Better context manager, cleaner code inserts.
+
 ## ✨ Features
 
 - 🤖 **Static AI Chat Window** - Persistent chat interface like Cursor, always available in your panel
