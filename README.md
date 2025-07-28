@@ -57,3 +57,7 @@ def process_payment(amount, card_token):
     # payment processing logic
     pass
 ```
+### 2. Type into UI: 
+<img width="581" height="789" alt="Screenshot 2025-07-28 at 12 20 19 AM" src="https://github.com/user-attachments/assets/0339322e-2da3-4f20-b424-99248f27bdae" />
+
+
