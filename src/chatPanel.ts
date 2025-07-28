@@ -190,12 +190,20 @@ Please provide the updated code that addresses the user's request while followin
     explanation: string;
   } {
     // Try to extract code blocks first (```...```)
-    const codeBlockRegex = /```(?:\w+)?\s*\n([\s\S]*?)\n```/g;
+    const codeBlockRegex = /```(?:\w+)?\s*\n?([\s\S]*?)\n?```/g;
     const codeBlocks = [];
     let match;
 
     while ((match = codeBlockRegex.exec(response)) !== null) {
-      codeBlocks.push(match[1].trim());
+      // Clean up the extracted code
+      let cleanCode = match[1].trim();
+
+      // Remove any remaining markdown artifacts
+      cleanCode = this.cleanMarkdownArtifacts(cleanCode);
+
+      if (cleanCode.length > 0) {
+        codeBlocks.push(cleanCode);
+      }
     }
 
     if (codeBlocks.length > 0) {
@@ -206,7 +214,9 @@ Please provide the updated code that addresses the user's request while followin
     }
 
     // If no code blocks, try to detect if the entire response looks like code
-    const lines = response.trim().split("\n");
+    let cleanedResponse = this.cleanMarkdownArtifacts(response.trim());
+
+    const lines = cleanedResponse.split("\n");
     const codeIndicators = [
       /^\s*(?:function|const|let|var|class|interface|type|import|export)/,
       /^\s*(?:def|class|import|from|if|for|while|try|except)/,
@@ -223,7 +233,7 @@ Please provide the updated code that addresses the user's request while followin
     ).length;
 
     if (codeLineCount / lines.length > 0.7) {
-      return { extractedCode: response.trim(), explanation: "" };
+      return { extractedCode: cleanedResponse, explanation: "" };
     }
 
     // Otherwise, try to find the largest indented block (likely code)
@@ -257,15 +267,46 @@ Please provide the updated code that addresses the user's request while followin
       const extractedCode = indentedBlocks.reduce((longest, current) =>
         current.length > longest.length ? current : longest
       );
-      return { extractedCode, explanation: response };
+      return {
+        extractedCode: this.cleanMarkdownArtifacts(extractedCode),
+        explanation: response,
+      };
     }
 
     // Last resort: if response looks short and code-like, use it all
-    if (response.length < 1000 && /[{}()[\];]/.test(response)) {
-      return { extractedCode: response.trim(), explanation: "" };
+    if (cleanedResponse.length < 1000 && /[{}()[\];]/.test(cleanedResponse)) {
+      return { extractedCode: cleanedResponse, explanation: "" };
     }
 
     return { extractedCode: null, explanation: response };
+  }
+
+  /**
+   * Clean up markdown artifacts and formatting from code
+   */
+  private cleanMarkdownArtifacts(code: string): string {
+    // Remove markdown code block markers that might have been missed
+    code = code.replace(/^```\w*\n?/gm, "");
+    code = code.replace(/\n?```$/gm, "");
+
+    // Remove any standalone ``` lines
+    code = code.replace(/^```$/gm, "");
+
+    // Remove language specifiers that might appear at the start
+    code = code.replace(
+      /^(python|javascript|typescript|js|ts|java|c\+\+|cpp|c|go|rust|php|ruby|html|css|sql|bash|shell|sh)\s*\n/i,
+      ""
+    );
+
+    // Remove any markdown formatting that might be in the code
+    code = code.replace(/^\*\*(.*?)\*\*$/gm, "$1"); // Remove bold
+    code = code.replace(/^\*(.*?)\*$/gm, "$1"); // Remove italic
+    code = code.replace(/^`(.*?)`$/gm, "$1"); // Remove inline code markers
+
+    // Clean up any extra whitespace
+    code = code.trim();
+
+    return code;
   }
 
   private async collectContext(): Promise<{
